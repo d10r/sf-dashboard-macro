@@ -16,16 +16,16 @@
         let provider;
         let signer;
         let signature;
-        let paramsToSign;
+        let paramsToProvide;
 
         const ACTION_CREATE_FLOW = 0;
         //const CREATE_FLOW_TYPEHASH = ethers.keccak256(ethers.toUtf8Bytes("createFlow(string lang,address token,address receiver,int96 flowRate)"));
 
-        const userMacroAbi = [{"inputs":[{"internalType":"address payable","name":"feeReceiver","type":"address"},{"internalType":"uint256","name":"feeAmount","type":"uint256"}],"stateMutability":"nonpayable","type":"constructor"},{"inputs":[],"name":"FeeOverpaid","type":"error"},{"inputs":[],"name":"InvalidShortString","type":"error"},{"inputs":[{"internalType":"string","name":"str","type":"string"}],"name":"StringTooLong","type":"error"},{"inputs":[{"internalType":"uint8","name":"action","type":"uint8"}],"name":"UnknownAction","type":"error"},{"inputs":[],"name":"UnsupportedLanguage","type":"error"},{"anonymous":false,"inputs":[],"name":"EIP712DomainChanged","type":"event"},{"inputs":[],"name":"CREATE_FLOW_TYPEHASH","outputs":[{"internalType":"bytes32","name":"","type":"bytes32"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"contract ISuperfluid","name":"host","type":"address"},{"internalType":"bytes","name":"params","type":"bytes"},{"internalType":"address","name":"","type":"address"}],"name":"buildBatchOperations","outputs":[{"components":[{"internalType":"uint32","name":"operationType","type":"uint32"},{"internalType":"address","name":"target","type":"address"},{"internalType":"bytes","name":"data","type":"bytes"}],"internalType":"struct ISuperfluid.Operation[]","name":"operations","type":"tuple[]"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"bytes","name":"signedParams","type":"bytes"}],"name":"decode721CreateFlow","outputs":[{"internalType":"contract ISuperToken","name":"token","type":"address"},{"internalType":"address","name":"receiver","type":"address"},{"internalType":"int96","name":"flowRate","type":"int96"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"eip712Domain","outputs":[{"internalType":"bytes1","name":"fields","type":"bytes1"},{"internalType":"string","name":"name","type":"string"},{"internalType":"string","name":"version","type":"string"},{"internalType":"uint256","name":"chainId","type":"uint256"},{"internalType":"address","name":"verifyingContract","type":"address"},{"internalType":"bytes32","name":"salt","type":"bytes32"},{"internalType":"uint256[]","name":"extensions","type":"uint256[]"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"string","name":"lang","type":"string"},{"internalType":"contract ISuperToken","name":"token","type":"address"},{"internalType":"address","name":"receiver","type":"address"},{"internalType":"int96","name":"flowRate","type":"int96"}],"name":"encode712CreateFlow","outputs":[{"internalType":"string","name":"message","type":"string"},{"internalType":"bytes","name":"paramsToSign","type":"bytes"},{"internalType":"bytes32","name":"digest","type":"bytes32"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"contract ISuperToken","name":"token","type":"address"},{"internalType":"address","name":"receiver","type":"address"},{"internalType":"int96","name":"flowRate","type":"int96"}],"name":"encodeCreateFlow","outputs":[{"internalType":"bytes","name":"","type":"bytes"}],"stateMutability":"pure","type":"function"},{"inputs":[{"internalType":"contract ISuperfluid","name":"","type":"address"},{"internalType":"bytes","name":"","type":"bytes"},{"internalType":"address","name":"","type":"address"}],"name":"postCheck","outputs":[],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"uint256","name":"amount","type":"uint256"}],"name":"takeFee","outputs":[],"stateMutability":"payable","type":"function"}];
+        const userMacroAbi = [{"inputs":[{"internalType":"address payable","name":"feeReceiver","type":"address"},{"internalType":"uint256","name":"feeAmount","type":"uint256"}],"stateMutability":"nonpayable","type":"constructor"},{"inputs":[],"name":"FeeOverpaid","type":"error"},{"inputs":[],"name":"InvalidShortString","type":"error"},{"inputs":[{"internalType":"string","name":"str","type":"string"}],"name":"StringTooLong","type":"error"},{"inputs":[{"internalType":"uint8","name":"action","type":"uint8"}],"name":"UnknownAction","type":"error"},{"inputs":[],"name":"UnsupportedLanguage","type":"error"},{"anonymous":false,"inputs":[],"name":"EIP712DomainChanged","type":"event"},{"inputs":[],"name":"CREATE_FLOW_TYPEHASH","outputs":[{"internalType":"bytes32","name":"","type":"bytes32"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"contract ISuperfluid","name":"host","type":"address"},{"internalType":"bytes","name":"params","type":"bytes"},{"internalType":"address","name":"","type":"address"}],"name":"buildBatchOperations","outputs":[{"components":[{"internalType":"uint32","name":"operationType","type":"uint32"},{"internalType":"address","name":"target","type":"address"},{"internalType":"bytes","name":"data","type":"bytes"}],"internalType":"struct ISuperfluid.Operation[]","name":"operations","type":"tuple[]"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"bytes","name":"signedParams","type":"bytes"}],"name":"decode721CreateFlow","outputs":[{"internalType":"contract ISuperToken","name":"token","type":"address"},{"internalType":"address","name":"receiver","type":"address"},{"internalType":"int96","name":"flowRate","type":"int96"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"eip712Domain","outputs":[{"internalType":"bytes1","name":"fields","type":"bytes1"},{"internalType":"string","name":"name","type":"string"},{"internalType":"string","name":"version","type":"string"},{"internalType":"uint256","name":"chainId","type":"uint256"},{"internalType":"address","name":"verifyingContract","type":"address"},{"internalType":"bytes32","name":"salt","type":"bytes32"},{"internalType":"uint256[]","name":"extensions","type":"uint256[]"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"string","name":"lang","type":"string"},{"internalType":"contract ISuperToken","name":"token","type":"address"},{"internalType":"address","name":"receiver","type":"address"},{"internalType":"int96","name":"flowRate","type":"int96"}],"name":"encode712CreateFlow","outputs":[{"internalType":"string","name":"message","type":"string"},{"internalType":"bytes","name":"paramsToProvide","type":"bytes"},{"internalType":"bytes32","name":"digest","type":"bytes32"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"contract ISuperToken","name":"token","type":"address"},{"internalType":"address","name":"receiver","type":"address"},{"internalType":"int96","name":"flowRate","type":"int96"}],"name":"encodeCreateFlow","outputs":[{"internalType":"bytes","name":"","type":"bytes"}],"stateMutability":"pure","type":"function"},{"inputs":[{"internalType":"contract ISuperfluid","name":"","type":"address"},{"internalType":"bytes","name":"","type":"bytes"},{"internalType":"address","name":"","type":"address"}],"name":"postCheck","outputs":[],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"uint256","name":"amount","type":"uint256"}],"name":"takeFee","outputs":[],"stateMutability":"payable","type":"function"}];
         //const userMacroIface = [
-        //    "function encode712CreateFlow(string memory lang, ISuperToken token, address receiver, int96 flowRate) external view returns (string memory message, bytes memory paramsToSign, bytes32 digest)"
+        //    "function encode712CreateFlow(string memory lang, ISuperToken token, address receiver, int96 flowRate) external view returns (string memory message, bytes memory paramsToProvide, bytes32 digest)"
         //];
-        const userMacroAddress = '0x620eFcde6196a4b603D532049094D923e34f0347';
+        const userMacroAddress = '0x3B7c3E077D62Ec50B0e9584e7AC4eC82593d5b79';
         let userMacroContract;
 
         connectButton.addEventListener('click', async () => {
@@ -48,8 +48,8 @@
             };
 
             const types = {
-                CreateFlow: [
-                    { name: 'action', type: 'uint8' },
+                SuperfluidCreateFlow: [
+                    { name: 'actionCode', type: 'string' },
                     { name: 'lang', type: 'string' },
                     { name: 'message', type: 'string' },
                     { name: 'token', type: 'address' },
@@ -60,7 +60,7 @@
 
             const value = {
                 // internal
-                action: ACTION_CREATE_FLOW,
+                actionCode: "cfa.createFlow",
                 // meta
                 lang: language,
                 message: "", // empty placeholder
@@ -74,9 +74,9 @@
 
             const encodedAction = await userMacroContract.encode712CreateFlow("en", value.token, value.receiver, value.flowRate);            
             const message = encodedAction[0];
-            paramsToSign = encodedAction[1];
+            paramsToProvide = encodedAction[1];
             const digestShould = encodedAction[2];
-            console.log(`message: ${message}, paramsToSign: ${paramsToSign}, digestShould: ${digestShould}`);
+            console.log(`message: ${message}, paramsToProvide: ${paramsToProvide}, digestShould: ${digestShould}`);
 
             value.message = message;
             console.log('Value:', JSON.stringify(value, null, 2));
@@ -134,7 +134,7 @@
 
             const params = ethers.AbiCoder.defaultAbiCoder().encode(
                 ['bytes', 'bytes'],
-                [paramsToSign, ethers.AbiCoder.defaultAbiCoder().encode(['uint8', 'bytes32', 'bytes32'], [signature.v, signature.r, signature.s])]
+                [paramsToProvide, ethers.AbiCoder.defaultAbiCoder().encode(['uint8', 'bytes32', 'bytes32'], [signature.v, signature.r, signature.s])]
             );
 
             try {

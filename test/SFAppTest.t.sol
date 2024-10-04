@@ -12,11 +12,6 @@ contract SFAppTest is FoundrySuperfluidTester {
 
     constructor() FoundrySuperfluidTester(5) { }
 
-    function testGetHostTimestamp() public {
-        uint256 hostTS = sf.host.getNow();
-        assertGt(hostTS, 0, "host timestamp is 0");
-    }
-
     function XtestPaidCFAOps() external {
         int96 flowRate1 = 42;
         int96 flowRate2 = 44;
@@ -29,13 +24,13 @@ contract SFAppTest is FoundrySuperfluidTester {
         vm.startPrank(alice);
 
         // alice creates a flow to bob
+        /*
         sf.macroForwarder.runMacro{value: feeAmount}(
             m,
             m.encodeCreateFlow(superToken, bob, flowRate1)
         );
         assertEq(feeReceiver.balance, feeAmount, "unexpected fee receiver balance");
         assertEq(sf.cfa.getNetFlow(superToken, bob), flowRate1);
-/*
         // ... then updates that flow
         sf.macroForwarder.runMacro{value: feeAmount}(
             m,

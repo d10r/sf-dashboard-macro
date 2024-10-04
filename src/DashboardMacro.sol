@@ -16,21 +16,18 @@ using SuperTokenV1Library for ISuperToken;
 /*
 TODO:
 - Implement "Ownable" for reverse ENS
-- validate the signature
-- delete action
+- implement delete action
 */
 contract DashboardMacro is EIP712, IUserDefinedMacro {
 
-    uint8 constant ACTION_CREATE_FLOW = 0;
-    uint8 constant ACTION_UPDATE_FLOW = 1;
-    uint8 constant ACTION_DELETE_FLOW = 2;
+    bytes32 constant ACTION_CODE_CREATE_FLOW = keccak256(bytes("cfa.createFlow"));
 
-    bytes32 constant public CREATE_FLOW_TYPEHASH = keccak256(bytes("CreateFlow(uint8 action,string lang,string message,address token,address receiver,int96 flowRate)"));
+    bytes32 constant public CREATE_FLOW_TYPEHASH = keccak256(bytes("SuperfluidCreateFlow(string actionCode,string lang,string message,address token,address receiver,int96 flowRate)"));
 
     address payable immutable FEE_RECEIVER;
     uint256 immutable FEE_AMOUNT;
 
-    error UnknownAction(uint8 action);
+    error UnknownActionCode(bytes32 actionCode);
     error FeeOverpaid();
     error UnsupportedLanguage();
     error InvalidSignature();
@@ -53,16 +50,14 @@ contract DashboardMacro is EIP712, IUserDefinedMacro {
         (bytes memory signedParams, bytes memory signatureVRS) = abi.decode(params, (bytes, bytes));
 
         // now we get the action code so we can dispatch
-        uint8 action;
+        bytes32 actionCode;
         assembly {
-            action := mload(add(signedParams, 32)) // load the first element (action) from the params array
+            actionCode := mload(add(signedParams, 32)) // load the first element (action) from the params array
         }
-        //(uint8 action, bytes memory actionArgs) = abi.decode(signedParams, (uint8, bytes));
-
-        // first operation: take fee
 
         operations = new ISuperfluid.Operation[](2);
 
+        // first operation: take fee
         operations[0] = ISuperfluid.Operation({
             operationType: BatchOperation.OPERATION_TYPE_SIMPLE_FORWARD_CALL,
             target: address(this),
@@ -70,12 +65,12 @@ contract DashboardMacro is EIP712, IUserDefinedMacro {
         });
 
         // second operation: manage flow
-        if (action == ACTION_CREATE_FLOW) {
-            // Extract the action arguments by skipping the first byte (action code)
-            (ISuperToken token, address receiver, int96 flowRate) = decode721CreateFlow(signedParams);
+        if (actionCode == ACTION_CODE_CREATE_FLOW) {
+            // Extract the action arguments
+            (string memory lang, ISuperToken token, address receiver, int96 flowRate) = decode721CreateFlow(signedParams);
 
             // now we verify the signature
-            validateCreateFlow(token, receiver, flowRate, signatureVRS, msgSender);
+            validateCreateFlow(lang, token, receiver, flowRate, signatureVRS, msgSender);
 
             operations[1] = ISuperfluid.Operation({
                 operationType: BatchOperation.OPERATION_TYPE_SUPERFLUID_CALL_AGREEMENT,
@@ -89,7 +84,7 @@ contract DashboardMacro is EIP712, IUserDefinedMacro {
                 )
             });
         } else {
-            revert UnknownAction(action);
+            revert UnknownActionCode(actionCode);
         }
     }
 
@@ -104,17 +99,6 @@ contract DashboardMacro is EIP712, IUserDefinedMacro {
     // e.g. by implementing a fallback or receive function.
     function postCheck(ISuperfluid /*host*/, bytes memory /*params*/, address /*msgSender*/) external view {
         if (address(this).balance != 0) revert FeeOverpaid();
-    }
-
-    // recommended view functions for parameter construction
-    // since this is a multi-method macro, a dispatch logic using action codes is applied.
-
-    // get params for createFlow
-    function encodeCreateFlow(ISuperToken token, address receiver, int96 flowRate) public pure returns (bytes memory) {
-        return abi.encode(
-            ACTION_CREATE_FLOW, // action
-            abi.encode(token, receiver, flowRate) // actionArgs
-        );
     }
 
     function getHumanReadableFlowRateStr(int96 flowRate) public view returns(string memory) {
@@ -141,17 +125,16 @@ contract DashboardMacro is EIP712, IUserDefinedMacro {
     // get params to sign and digest for createFlow, for use with EIP-712
     function encode712CreateFlow(string memory lang, ISuperToken token, address receiver, int96 flowRate)
         public view
-        returns (string memory message, bytes memory paramsToSign, bytes32 digest)
+        returns (string memory message, bytes memory paramsToProvide, bytes32 digest)
     {
         // the message is constructed based on the selected language and action arguments
         if (Strings.equal(lang, "en")) {
             message = string(abi.encodePacked("Create a new flow of ", getHumanReadableFlowRateStr(flowRate), " ", token.symbol(), "/day"));
         } else revert UnsupportedLanguage();
 
-        paramsToSign = abi.encode(
-            ACTION_CREATE_FLOW,
+        paramsToProvide = abi.encode(
+            ACTION_CODE_CREATE_FLOW,
             lang,
-            message,
             token, receiver, flowRate
         );
 
@@ -159,7 +142,7 @@ contract DashboardMacro is EIP712, IUserDefinedMacro {
             keccak256(
                 abi.encode(
                     CREATE_FLOW_TYPEHASH,
-                    ACTION_CREATE_FLOW,
+                    ACTION_CODE_CREATE_FLOW,
                     keccak256(bytes(lang)),
                     keccak256(bytes(message)),
                     token, receiver, flowRate
@@ -170,17 +153,15 @@ contract DashboardMacro is EIP712, IUserDefinedMacro {
 
     function decode721CreateFlow(bytes memory signedParams)
         public view
-        returns(ISuperToken token, address receiver, int96 flowRate)
+        returns(string memory lang, ISuperToken token, address receiver, int96 flowRate)
     {
         // skip action, lang, message
-        (, , , token, receiver, flowRate) =
-                abi.decode(signedParams, (uint8, bytes32, bytes32, ISuperToken, address, int96));
+        (, lang, token, receiver, flowRate) =
+                abi.decode(signedParams, (bytes32, string, ISuperToken, address, int96));
     }
 
     // taking the signed params, validate the signature
-    function validateCreateFlow(ISuperToken token, address receiver, int96 flowRate, bytes memory signatureVRS, address msgSender) public view returns (bool) {
-        // TODO: how to get the lang?
-        string memory lang = "en";
+    function validateCreateFlow(string memory lang, ISuperToken token, address receiver, int96 flowRate, bytes memory signatureVRS, address msgSender) public view returns (bool) {
         (, , bytes32 digest) = encode712CreateFlow(lang, token, receiver, flowRate);
 
         // validate the signature
