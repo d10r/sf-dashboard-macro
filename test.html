@@ -19,7 +19,14 @@
         let paramsToSign;
 
         const ACTION_CREATE_FLOW = 0;
-        const CREATE_FLOW_TYPEHASH = ethers.keccak256(ethers.toUtf8Bytes("createFlow(address token,address receiver,int96 flowRate)"));
+        //const CREATE_FLOW_TYPEHASH = ethers.keccak256(ethers.toUtf8Bytes("createFlow(string lang,address token,address receiver,int96 flowRate)"));
+
+        const userMacroAbi = [{"inputs":[{"internalType":"address payable","name":"feeReceiver","type":"address"},{"internalType":"uint256","name":"feeAmount","type":"uint256"}],"stateMutability":"nonpayable","type":"constructor"},{"inputs":[],"name":"FeeOverpaid","type":"error"},{"inputs":[],"name":"InvalidShortString","type":"error"},{"inputs":[{"internalType":"string","name":"str","type":"string"}],"name":"StringTooLong","type":"error"},{"inputs":[{"internalType":"uint8","name":"action","type":"uint8"}],"name":"UnknownAction","type":"error"},{"inputs":[],"name":"UnsupportedLanguage","type":"error"},{"anonymous":false,"inputs":[],"name":"EIP712DomainChanged","type":"event"},{"inputs":[],"name":"CREATE_FLOW_TYPEHASH","outputs":[{"internalType":"bytes32","name":"","type":"bytes32"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"contract ISuperfluid","name":"host","type":"address"},{"internalType":"bytes","name":"params","type":"bytes"},{"internalType":"address","name":"","type":"address"}],"name":"buildBatchOperations","outputs":[{"components":[{"internalType":"uint32","name":"operationType","type":"uint32"},{"internalType":"address","name":"target","type":"address"},{"internalType":"bytes","name":"data","type":"bytes"}],"internalType":"struct ISuperfluid.Operation[]","name":"operations","type":"tuple[]"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"bytes","name":"signedParams","type":"bytes"}],"name":"decode721CreateFlow","outputs":[{"internalType":"contract ISuperToken","name":"token","type":"address"},{"internalType":"address","name":"receiver","type":"address"},{"internalType":"int96","name":"flowRate","type":"int96"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"eip712Domain","outputs":[{"internalType":"bytes1","name":"fields","type":"bytes1"},{"internalType":"string","name":"name","type":"string"},{"internalType":"string","name":"version","type":"string"},{"internalType":"uint256","name":"chainId","type":"uint256"},{"internalType":"address","name":"verifyingContract","type":"address"},{"internalType":"bytes32","name":"salt","type":"bytes32"},{"internalType":"uint256[]","name":"extensions","type":"uint256[]"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"string","name":"lang","type":"string"},{"internalType":"contract ISuperToken","name":"token","type":"address"},{"internalType":"address","name":"receiver","type":"address"},{"internalType":"int96","name":"flowRate","type":"int96"}],"name":"encode712CreateFlow","outputs":[{"internalType":"string","name":"message","type":"string"},{"internalType":"bytes","name":"paramsToSign","type":"bytes"},{"internalType":"bytes32","name":"digest","type":"bytes32"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"contract ISuperToken","name":"token","type":"address"},{"internalType":"address","name":"receiver","type":"address"},{"internalType":"int96","name":"flowRate","type":"int96"}],"name":"encodeCreateFlow","outputs":[{"internalType":"bytes","name":"","type":"bytes"}],"stateMutability":"pure","type":"function"},{"inputs":[{"internalType":"contract ISuperfluid","name":"","type":"address"},{"internalType":"bytes","name":"","type":"bytes"},{"internalType":"address","name":"","type":"address"}],"name":"postCheck","outputs":[],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"uint256","name":"amount","type":"uint256"}],"name":"takeFee","outputs":[],"stateMutability":"payable","type":"function"}];
+        //const userMacroIface = [
+        //    "function encode712CreateFlow(string memory lang, ISuperToken token, address receiver, int96 flowRate) external view returns (string memory message, bytes memory paramsToSign, bytes32 digest)"
+        //];
+        const userMacroAddress = '0x620eFcde6196a4b603D532049094D923e34f0347';
+        let userMacroContract;
 
         connectButton.addEventListener('click', async () => {
             provider = new ethers.BrowserProvider(window.ethereum);
@@ -31,38 +38,89 @@
         });
 
         signButton.addEventListener('click', async () => {
+            const language = "en";
+
             const domain = {
                 name: 'app.superfluid',
                 version: '0.1.0',
                 chainId: 11155420, // optimism-sepolia
-                verifyingContract: '0x8f7535dBEa452ebA8251d30AE6d01c4d9E67F24F',
+                verifyingContract: userMacroAddress,
             };
 
             const types = {
                 CreateFlow: [
+                    { name: 'action', type: 'uint8' },
+                    { name: 'lang', type: 'string' },
+                    { name: 'message', type: 'string' },
                     { name: 'token', type: 'address' },
                     { name: 'receiver', type: 'address' },
                     { name: 'flowRate', type: 'int96' },
-                ],
+                ]
             };
 
             const value = {
+                // internal
                 action: ACTION_CREATE_FLOW,
+                // meta
+                lang: language,
+                message: "", // empty placeholder
+                // actionArgs
                 token: '0x0043d7c85c8b96a49a72a92c0b48cdc4720437d7', // ETHx
                 receiver: '0xffffd91a44f375bd35365f0f195d9e0dba1649fc', // random addr
-                flowRate: 100,
+                flowRate: 1157407407407, // 0.1 per day
             };
+            // instantiate userMacroContract
+            userMacroContract = new ethers.Contract(userMacroAddress, userMacroAbi, signer);
 
-            paramsToSign = ethers.AbiCoder.defaultAbiCoder().encode(
-                ['uint8', 'address', 'address', 'int96'],
-                [value.action, value.token, value.receiver, value.flowRate]
+            const encodedAction = await userMacroContract.encode712CreateFlow("en", value.token, value.receiver, value.flowRate);            
+            const message = encodedAction[0];
+            paramsToSign = encodedAction[1];
+            const digestShould = encodedAction[2];
+            console.log(`message: ${message}, paramsToSign: ${paramsToSign}, digestShould: ${digestShould}`);
+
+            value.message = message;
+            console.log('Value:', JSON.stringify(value, null, 2));
+/*
+            const oldParamsToSign = ethers.AbiCoder.defaultAbiCoder().encode(
+                ['uint8', 'string', 'string', 'address', 'address', 'int96'],
+                [value.action, value.lang, value.message, value.token, value.receiver, value.flowRate]
             );
+            console.log(`oldParamsToSign: ${oldParamsToSign}`);
+            */
 
-            const digest = await signer.signTypedData(domain, types, value);
-            signature = ethers.Signature.from(digest);
+            // Import TypedDataEncoder if you haven't already
+            const { TypedDataEncoder } = ethers;
 
-            console.log('ParamsToSign:', paramsToSign);
+            // Create a TypedDataEncoder instance
+            const encoder = TypedDataEncoder.from(types);
+
+            // Get the string representation of the primary type (in this case, 'CreateFlow')
+            const typeString = encoder.primaryType;
+
+            console.log('Type string:', typeString);
+            console.log('Full type string:', encoder.encodeType(typeString));
+
+            // If you want to see the actual hash
+            const typeHash = ethers.keccak256(ethers.toUtf8Bytes(encoder.encodeType(typeString)));
+            console.log('Type hash:', typeHash);
+
+            // Calculate the hash using ethers.js
+            const hashCalculatedByEthers = TypedDataEncoder.hash(domain, types, value);
+            console.log('Hash calculated by ethers:', hashCalculatedByEthers);
+
+            // Compare with the hash returned by the contract (digestShould)
+            console.log('Hash matches:', hashCalculatedByEthers === digestShould);
+
+            // Sign the data
+            const signatureStr = await signer.signTypedData(domain, types, value);
+            signature = ethers.Signature.from(signatureStr);
             console.log('Signature:', signature);
+
+            // If you want to verify the signature
+            const recoveredAddress = ethers.verifyTypedData(domain, types, value, signature);
+            console.log('Recovered address:', recoveredAddress);
+            console.log('Signer address:', await signer.getAddress());
+            console.log('Address matches:', recoveredAddress === await signer.getAddress());
 
             signButton.disabled = true;
             sendButton.disabled = false;
@@ -70,11 +128,9 @@
 
         sendButton.addEventListener('click', async () => {
             const macroForwarderAddress = '0xFD0268E33111565dE546af2675351A4b1587F89F';
-            const userMacroAddress = '0x8f7535dBEa452ebA8251d30AE6d01c4d9E67F24F'; // Replace with your user macro contract address
-            const abi = [
-                "function runMacro(address macro, bytes calldata params) external payable"
-            ];
-            const macroForwarder = new ethers.Contract(macroForwarderAddress, abi, signer);
+            const feeAmountStr = "0.0005";
+            const macroForwarderAbi = [{"inputs":[{"internalType":"contract ISuperfluid","name":"host","type":"address"}],"stateMutability":"nonpayable","type":"constructor"},{"inputs":[{"internalType":"contract IUserDefinedMacro","name":"m","type":"address"},{"internalType":"bytes","name":"params","type":"bytes"}],"name":"buildBatchOperations","outputs":[{"components":[{"internalType":"uint32","name":"operationType","type":"uint32"},{"internalType":"address","name":"target","type":"address"},{"internalType":"bytes","name":"data","type":"bytes"}],"internalType":"struct ISuperfluid.Operation[]","name":"operations","type":"tuple[]"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"contract IUserDefinedMacro","name":"m","type":"address"},{"internalType":"bytes","name":"params","type":"bytes"}],"name":"runMacro","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"payable","type":"function"}];
+            const macroForwarder = new ethers.Contract(macroForwarderAddress, macroForwarderAbi, signer);
 
             const params = ethers.AbiCoder.defaultAbiCoder().encode(
                 ['bytes', 'bytes'],
@@ -82,7 +138,7 @@
             );
 
             try {
-                const feeAmount = ethers.parseEther("0.001");
+                const feeAmount = ethers.parseEther(feeAmountStr);
                 const tx = await macroForwarder.runMacro(userMacroAddress, params, { value: feeAmount });
                 console.log('Transaction sent:', tx.hash);
                 await tx.wait();

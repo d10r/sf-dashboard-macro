@@ -56,7 +56,7 @@ contract SFAppTest is FoundrySuperfluidTester {
 
     // REF: https://book.getfoundry.sh/tutorials/testing-eip712
     function testCreateFlow712() external {
-        int96 flowRate = 42;
+        int96 flowRate = 1157407407407; // 0.1 per day
 
         VmSafe.Wallet memory signer = vm.createWallet("signer");
         console.log("signer's wallet address %s", signer.addr);
@@ -71,14 +71,17 @@ contract SFAppTest is FoundrySuperfluidTester {
 
         vm.startPrank(signer.addr);
 
-        (bytes memory paramsToSign, bytes32 digest) = m.encode712CreateFlow(superToken, bob, flowRate);
+        (string memory message, bytes memory paramsToSign, bytes32 digest) = m.encode712CreateFlow("en", superToken, bob, flowRate);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(signer, digest);
+        console.log("message: ", message);
 
         bytes memory params = abi.encode(paramsToSign, abi.encode(v, r, s));
 
         vm.startPrank(signer.addr);
         sf.macroForwarder.runMacro{value: feeAmount}(m, params);
         vm.stopPrank();
+
+        assertEq(feeReceiver.balance, feeAmount, "unexpected fee receiver balance");
     }
 }
 
