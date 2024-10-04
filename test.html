@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>MacroForwarder Interaction for CreateFlow</title>
+    <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.3/dist/ethers.umd.min.js"></script>
+</head>
+<body>
+    <button id="connect-button">Connect Wallet</button>
+    <button id="sign-button" disabled>Request Signature</button>
+    <button id="send-button" disabled>Send Transaction</button>
+    <script>
+        const connectButton = document.getElementById('connect-button');
+        const signButton = document.getElementById('sign-button');
+        const sendButton = document.getElementById('send-button');
+
+        let provider;
+        let signer;
+        let signature;
+        let paramsToSign;
+
+        const ACTION_CREATE_FLOW = 0;
+        const CREATE_FLOW_TYPEHASH = ethers.keccak256(ethers.toUtf8Bytes("createFlow(address token,address receiver,int96 flowRate)"));
+
+        connectButton.addEventListener('click', async () => {
+            provider = new ethers.BrowserProvider(window.ethereum);
+            await provider.send('eth_requestAccounts', []);
+            signer = await provider.getSigner();
+
+            connectButton.disabled = true;
+            signButton.disabled = false;
+        });
+
+        signButton.addEventListener('click', async () => {
+            const domain = {
+                name: 'app.superfluid',
+                version: '0.1.0',
+                chainId: 11155420, // optimism-sepolia
+                verifyingContract: '0x8f7535dBEa452ebA8251d30AE6d01c4d9E67F24F',
+            };
+
+            const types = {
+                CreateFlow: [
+                    { name: 'token', type: 'address' },
+                    { name: 'receiver', type: 'address' },
+                    { name: 'flowRate', type: 'int96' },
+                ],
+            };
+
+            const value = {
+                action: ACTION_CREATE_FLOW,
+                token: '0x0043d7c85c8b96a49a72a92c0b48cdc4720437d7', // ETHx
+                receiver: '0xffffd91a44f375bd35365f0f195d9e0dba1649fc', // random addr
+                flowRate: 100,
+            };
+
+            paramsToSign = ethers.AbiCoder.defaultAbiCoder().encode(
+                ['uint8', 'address', 'address', 'int96'],
+                [value.action, value.token, value.receiver, value.flowRate]
+            );
+
+            const digest = await signer.signTypedData(domain, types, value);
+            signature = ethers.Signature.from(digest);
+
+            console.log('ParamsToSign:', paramsToSign);
+            console.log('Signature:', signature);
+
+            signButton.disabled = true;
+            sendButton.disabled = false;
+        });
+
+        sendButton.addEventListener('click', async () => {
+            const macroForwarderAddress = '0xFD0268E33111565dE546af2675351A4b1587F89F';
+            const userMacroAddress = '0x8f7535dBEa452ebA8251d30AE6d01c4d9E67F24F'; // Replace with your user macro contract address
+            const abi = [
+                "function runMacro(address macro, bytes calldata params) external payable"
+            ];
+            const macroForwarder = new ethers.Contract(macroForwarderAddress, abi, signer);
+
+            const params = ethers.AbiCoder.defaultAbiCoder().encode(
+                ['bytes', 'bytes'],
+                [paramsToSign, ethers.AbiCoder.defaultAbiCoder().encode(['uint8', 'bytes32', 'bytes32'], [signature.v, signature.r, signature.s])]
+            );
+
+            try {
+                const feeAmount = ethers.parseEther("0.001");
+                const tx = await macroForwarder.runMacro(userMacroAddress, params, { value: feeAmount });
+                console.log('Transaction sent:', tx.hash);
+                await tx.wait();
+                console.log('Transaction confirmed');
+            } catch (error) {
+                console.error('Error sending transaction:', error);
+            }
+        });
+    </script>
+</body>
+</html>
