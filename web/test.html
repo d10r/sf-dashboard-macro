@@ -51,7 +51,7 @@
         let userMacroContract;
         let userMacroAbi;
 
-        const userMacroAddress = '0xBA4E6E7878a34F224428BbC4Eb54F4a892cD3e09';
+        const userMacroAddress = '0x2a8aa6FA9D355E76f8FC75410BFc0AD48b010b27';
 
         // Load the ABI from the JSON file
         async function loadAbi() {
@@ -107,9 +107,7 @@
             if (actionSelect.value === 'createFlow') {
                 types = {
                     SuperfluidCreateFlow: [
-                        { name: 'actionCode', type: 'string' },
-                        { name: 'lang', type: 'string' },
-                        { name: 'message', type: 'string' },
+                        { name: 'action', type: 'string' },
                         { name: 'token', type: 'address' },
                         { name: 'receiver', type: 'address' },
                         { name: 'flowRate', type: 'int96' },
@@ -120,9 +118,7 @@
                 const flowRateWeiPerSecond = tokensPerDayToWeiPerSecond(flowRateTokensPerDay);
 
                 value = {
-                    actionCode: "cfa.createFlow",
-                    lang: language,
-                    message: "",
+                    action: "", //placeholder
                     token: document.getElementById('cf-token').value,
                     receiver: document.getElementById('cf-receiver').value,
                     flowRate: flowRateWeiPerSecond.toString(), // Convert BigInt to string
@@ -132,9 +128,7 @@
             } else if (actionSelect.value === 'upgrade') {
                 types = {
                     SuperfluidUpgrade: [
-                        { name: 'actionCode', type: 'string' },
-                        { name: 'lang', type: 'string' },
-                        { name: 'message', type: 'string' },
+                        { name: 'action', type: 'string' },
                         { name: 'token', type: 'address' },
                         { name: 'amount', type: 'uint256' },
                     ]
@@ -144,9 +138,7 @@
                 const amountWei = ethers.parseEther(amountTokens.toString());
 
                 value = {
-                    actionCode: "upgrade",
-                    lang: language,
-                    message: "",
+                    action: "",
                     token: document.getElementById('up-token').value,
                     amount: amountWei,
                 };
@@ -159,7 +151,7 @@
             const digestShould = encodedAction[2];
             console.log(`message: ${message}, paramsToProvide: ${paramsToProvide}, digestShould: ${digestShould}`);
 
-            value.message = message;
+            value.action = message;
             
             // Convert BigInt values to strings for logging
             const loggableValue = Object.fromEntries(

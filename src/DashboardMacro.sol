@@ -23,8 +23,8 @@ contract DashboardMacro is EIP712, IUserDefinedMacro {
     uint8 constant ACTION_CREATE_FLOW = 1;
     uint8 constant ACTION_UPGRADE = 2;
 
-    bytes32 constant public CREATE_FLOW_TYPEHASH = keccak256(bytes("SuperfluidCreateFlow(uint8 actionCode,string lang,string message,address token,address receiver,int96 flowRate)"));
-    bytes32 constant public UPGRADE_TYPEHASH = keccak256(bytes("SuperfluidUpgrade(uint8 actionCode,string lang,string message,address token,uint256 amount)"));
+    bytes32 constant public CREATE_FLOW_TYPEHASH = keccak256(bytes("SuperfluidCreateFlow(string action,address token,address receiver,int96 flowRate)"));
+    bytes32 constant public UPGRADE_TYPEHASH = keccak256(bytes("SuperfluidUpgrade(string action,address token,uint256 amount)"));
 
     address payable immutable FEE_RECEIVER;
     uint256 immutable FEE_AMOUNT;
@@ -48,18 +48,18 @@ contract DashboardMacro is EIP712, IUserDefinedMacro {
             keccak256("org.superfluid-finance.agreements.ConstantFlowAgreement.v1")
         )));
 
-        // first we parse the signed params and the signature
-        (bytes memory actualParams, bytes memory signatureVRS) = abi.decode(params, (bytes, bytes));
+        // first we seperate the provided params from the signature
+        (bytes memory providedParams, bytes memory signatureVRS) = abi.decode(params, (bytes, bytes));
 
         // now we get the action code so we can dispatch
         uint8 actionCode;
         assembly {
-            actionCode := mload(add(actualParams, 32)) // load the first word (actionCode) from the params array
+            actionCode := mload(add(providedParams, 32)) // load the first word (actionCode) from the params array
         }
 
         if (actionCode == ACTION_CREATE_FLOW) {
             // Extract the action arguments
-            (string memory lang, ISuperToken token, address receiver, int96 flowRate) = decode712CreateFlow(actualParams);
+            (string memory lang, ISuperToken token, address receiver, int96 flowRate) = decode712CreateFlow(providedParams);
 
             // now we verify the signature
             validateCreateFlow(lang, token, receiver, flowRate, signatureVRS, msgSender);
@@ -83,7 +83,9 @@ contract DashboardMacro is EIP712, IUserDefinedMacro {
                 )
             });
         } else if (actionCode == ACTION_UPGRADE) {
-            (string memory lang, ISuperToken token, uint256 amount) = decode712Upgrade(actualParams);
+            (string memory lang, ISuperToken token, uint256 amount) = decode712Upgrade(providedParams);
+
+            validateUpgrade(lang, token, amount, signatureVRS, msgSender);
 
             operations = new ISuperfluid.Operation[](1);
             operations[0] = ISuperfluid.Operation({
@@ -155,7 +157,6 @@ contract DashboardMacro is EIP712, IUserDefinedMacro {
             keccak256(
                 abi.encode(
                     CREATE_FLOW_TYPEHASH,
-                    keccak256(bytes(lang)),
                     keccak256(bytes(message)),
                     token, receiver, flowRate
                 )
@@ -203,7 +204,6 @@ contract DashboardMacro is EIP712, IUserDefinedMacro {
             keccak256(
                 abi.encode(
                     UPGRADE_TYPEHASH,
-                    keccak256(bytes(lang)),
                     keccak256(bytes(message)),
                     token, amount
                 )
@@ -221,7 +221,7 @@ contract DashboardMacro is EIP712, IUserDefinedMacro {
     }
 
     // taking the signed params, validate the signature
-    function validateCreateFlow(string memory lang, ISuperToken token, uint256 amount, bytes memory signatureVRS, address msgSender) public view returns (bool) {
+    function validateUpgrade(string memory lang, ISuperToken token, uint256 amount, bytes memory signatureVRS, address msgSender) public view returns (bool) {
         (, , bytes32 digest) = encode712Upgrade(lang, token, amount);
 
         // validate the signature
