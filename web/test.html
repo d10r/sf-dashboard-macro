@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>MacroForwarder Interaction with Superfluid</title>
+    <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.3/dist/ethers.umd.min.js"></script>
+    <style>
+        .form-container {
+            margin-top: 10px;
+        }
+        .form-container > div {
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <button id="connect-button">Connect Wallet</button>
+    <div class="form-container">
+        <select id="action-select" disabled>
+            <option value="createFlow">Create Flow</option>
+            <option value="upgrade">Upgrade</option>
+        </select>
+        <div id="createFlow-form" style="display:none;">
+            <label for="cf-token">Token Address:</label>
+            <input id="cf-token" type="text" value="0x0043d7c85c8b96a49a72a92c0b48cdc4720437d7"><br>
+            <label for="cf-receiver">Receiver Address:</label>
+            <input id="cf-receiver" type="text" value="0xffffd91a44f375bd35365f0f195d9e0dba1649fc"><br>
+            <label for="cf-flowRate">Flow Rate (tokens/day):</label>
+            <input id="cf-flowRate" type="number" value="0.1" step="0.1">
+        </div>
+        <div id="upgrade-form" style="display:none;">
+            <label for="up-token">Token Address:</label>
+            <input id="up-token" type="text" value="0xd6faf98befa647403cc56bdb598690660d5257d2"><br>
+            <label for="up-amount">Amount (tokens):</label>
+            <input id="up-amount" type="number" value="1" step="0.1">
+        </div>
+        <button id="sign-button" disabled>Request Signature</button>
+        <button id="send-button" disabled>Send Transaction</button>
+    </div>
+    <script>
+        const connectButton = document.getElementById('connect-button');
+        const actionSelect = document.getElementById('action-select');
+        const createFlowForm = document.getElementById('createFlow-form');
+        const upgradeForm = document.getElementById('upgrade-form');
+        const signButton = document.getElementById('sign-button');
+        const sendButton = document.getElementById('send-button');
+
+        let provider;
+        let signer;
+        let signature;
+        let paramsToProvide;
+        let userMacroContract;
+        let userMacroAbi;
+
+        const userMacroAddress = '0xBA4E6E7878a34F224428BbC4Eb54F4a892cD3e09';
+
+        // Load the ABI from the JSON file
+        async function loadAbi() {
+            const response = await fetch('MacroAbi.json');
+            userMacroAbi = await response.json();
+        }
+
+        loadAbi().then(() => {
+            console.log('ABI loaded successfully');
+        }).catch((error) => {
+            console.error('Error loading ABI:', error);
+        });
+
+        function showSelectedForm() {
+            const selectedAction = actionSelect.value;
+            createFlowForm.style.display = selectedAction === 'createFlow' ? 'block' : 'none';
+            upgradeForm.style.display = selectedAction === 'upgrade' ? 'block' : 'none';
+        }
+
+        connectButton.addEventListener('click', async () => {
+            provider = new ethers.BrowserProvider(window.ethereum);
+            await provider.send('eth_requestAccounts', []);
+            signer = await provider.getSigner();
+
+            // Initialize the userMacroContract here
+            userMacroContract = new ethers.Contract(userMacroAddress, userMacroAbi, signer);
+
+            connectButton.disabled = true;
+            actionSelect.disabled = false;
+            signButton.disabled = false;
+            showSelectedForm(); // Show the initially selected form
+        });
+
+        actionSelect.addEventListener('change', showSelectedForm);
+
+        function tokensPerDayToWeiPerSecond(tokensPerDay) {
+            const tokensPerSecond = tokensPerDay / 86400;
+            return BigInt(ethers.parseEther(tokensPerSecond.toFixed(18)));
+        }
+
+        signButton.addEventListener('click', async () => {
+            const language = "en";
+
+            const domain = {
+                name: 'app.superfluid',
+                version: '0.1.0',
+                chainId: 11155420, // optimism-sepolia
+                verifyingContract: userMacroAddress,
+            };
+
+            let types, value, encodedAction;
+
+            if (actionSelect.value === 'createFlow') {
+                types = {
+                    SuperfluidCreateFlow: [
+                        { name: 'actionCode', type: 'string' },
+                        { name: 'lang', type: 'string' },
+                        { name: 'message', type: 'string' },
+                        { name: 'token', type: 'address' },
+                        { name: 'receiver', type: 'address' },
+                        { name: 'flowRate', type: 'int96' },
+                    ]
+                };
+
+                const flowRateTokensPerDay = parseFloat(document.getElementById('cf-flowRate').value);
+                const flowRateWeiPerSecond = tokensPerDayToWeiPerSecond(flowRateTokensPerDay);
+
+                value = {
+                    actionCode: "cfa.createFlow",
+                    lang: language,
+                    message: "",
+                    token: document.getElementById('cf-token').value,
+                    receiver: document.getElementById('cf-receiver').value,
+                    flowRate: flowRateWeiPerSecond.toString(), // Convert BigInt to string
+                };
+
+                encodedAction = await userMacroContract.encode712CreateFlow(language, value.token, value.receiver, value.flowRate);
+            } else if (actionSelect.value === 'upgrade') {
+                types = {
+                    SuperfluidUpgrade: [
+                        { name: 'actionCode', type: 'string' },
+                        { name: 'lang', type: 'string' },
+                        { name: 'message', type: 'string' },
+                        { name: 'token', type: 'address' },
+                        { name: 'amount', type: 'uint256' },
+                    ]
+                };
+
+                const amountTokens = parseFloat(document.getElementById('up-amount').value);
+                const amountWei = ethers.parseEther(amountTokens.toString());
+
+                value = {
+                    actionCode: "upgrade",
+                    lang: language,
+                    message: "",
+                    token: document.getElementById('up-token').value,
+                    amount: amountWei,
+                };
+
+                encodedAction = await userMacroContract.encode712Upgrade(language, value.token, value.amount);
+            }
+
+            const message = encodedAction[0];
+            paramsToProvide = encodedAction[1];
+            const digestShould = encodedAction[2];
+            console.log(`message: ${message}, paramsToProvide: ${paramsToProvide}, digestShould: ${digestShould}`);
+
+            value.message = message;
+            
+            // Convert BigInt values to strings for logging
+            const loggableValue = Object.fromEntries(
+                Object.entries(value).map(([k, v]) => [k, typeof v === 'bigint' ? v.toString() : v])
+            );
+            console.log('Value:', JSON.stringify(loggableValue, null, 2));
+
+            const { TypedDataEncoder } = ethers;
+            const encoder = TypedDataEncoder.from(types);
+            console.log('Type string:', encoder.primaryType);
+            console.log('Full type string:', encoder.encodeType(encoder.primaryType));
+
+            const hashCalculatedByEthers = TypedDataEncoder.hash(domain, types, value);
+            console.log('Hash calculated by ethers:', hashCalculatedByEthers);
+            console.log('Hash matches:', hashCalculatedByEthers === digestShould);
+
+            const signatureStr = await signer.signTypedData(domain, types, value);
+            signature = ethers.Signature.from(signatureStr);
+            console.log('Signature:', signature);
+
+            const recoveredAddress = ethers.verifyTypedData(domain, types, value, signature);
+            console.log('Recovered address:', recoveredAddress);
+            console.log('Signer address:', await signer.getAddress());
+            console.log('Address matches:', recoveredAddress === await signer.getAddress());
+
+            signButton.disabled = true;
+            sendButton.disabled = false;
+        });
+
+        sendButton.addEventListener('click', async () => {
+            const macroForwarderAddress = '0xFD0268E33111565dE546af2675351A4b1587F89F';
+            const feeAmountStr = "0.0005";
+            const macroForwarderAbi = [{"inputs":[{"internalType":"contract ISuperfluid","name":"host","type":"address"}],"stateMutability":"nonpayable","type":"constructor"},{"inputs":[{"internalType":"contract IUserDefinedMacro","name":"m","type":"address"},{"internalType":"bytes","name":"params","type":"bytes"}],"name":"buildBatchOperations","outputs":[{"components":[{"internalType":"uint32","name":"operationType","type":"uint32"},{"internalType":"address","name":"target","type":"address"},{"internalType":"bytes","name":"bytes"}],"internalType":"struct ISuperfluid.Operation[]","name":"operations","type":"tuple[]"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"contract IUserDefinedMacro","name":"m","type":"address"},{"internalType":"bytes","name":"params","type":"bytes"}],"name":"runMacro","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"payable","type":"function"}];
+            const macroForwarder = new ethers.Contract(macroForwarderAddress, macroForwarderAbi, signer);
+
+            const params = ethers.AbiCoder.defaultAbiCoder().encode(
+                ['bytes', 'bytes'],
+                [paramsToProvide, ethers.AbiCoder.defaultAbiCoder().encode(['uint8', 'bytes32', 'bytes32'], [signature.v, signature.r, signature.s])]
+            );
+
+            try {
+                const feeAmount = ethers.parseEther(feeAmountStr);
+                const tx = await macroForwarder.runMacro(userMacroAddress, params, { value: feeAmount });
+                console.log('Transaction sent:', tx.hash);
+                await tx.wait();
+                console.log('Transaction confirmed');
+            } catch (error) {
+                console.error('Error sending transaction:', error);
+            }
+        });
+    </script>
+</body>
+</html>

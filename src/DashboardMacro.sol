@@ -6,7 +6,7 @@ import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 import { EIP712 } from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 
 import { MacroForwarder, IUserDefinedMacro } from "@superfluid-finance/ethereum-contracts/contracts/utils/MacroForwarder.sol";
-import { ISuperfluid, BatchOperation } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
+import { ISuperfluid, BatchOperation, IERC20Metadata } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/superfluid/SuperToken.sol";
 import { IConstantFlowAgreementV1 } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/agreements/IConstantFlowAgreementV1.sol";
 import { SuperTokenV1Library } from "@superfluid-finance/ethereum-contracts/contracts/apps/SuperTokenV1Library.sol";
@@ -21,8 +21,10 @@ TODO:
 contract DashboardMacro is EIP712, IUserDefinedMacro {
 
     bytes32 constant ACTION_CODE_CREATE_FLOW = keccak256(bytes("cfa.createFlow"));
+    bytes32 constant ACTION_CODE_UPGRADE = keccak256(bytes("upgrade"));
 
     bytes32 constant public CREATE_FLOW_TYPEHASH = keccak256(bytes("SuperfluidCreateFlow(string actionCode,string lang,string message,address token,address receiver,int96 flowRate)"));
+    bytes32 constant public UPGRADE_TYPEHASH = keccak256(bytes("SuperfluidUpgrade(string actionCode,string lang,string message,address token,uint256 amount)"));
 
     address payable immutable FEE_RECEIVER;
     uint256 immutable FEE_AMOUNT;
@@ -67,7 +69,7 @@ contract DashboardMacro is EIP712, IUserDefinedMacro {
         // second operation: manage flow
         if (actionCode == ACTION_CODE_CREATE_FLOW) {
             // Extract the action arguments
-            (string memory lang, ISuperToken token, address receiver, int96 flowRate) = decode721CreateFlow(signedParams);
+            (string memory lang, ISuperToken token, address receiver, int96 flowRate) = decode712CreateFlow(signedParams);
 
             // now we verify the signature
             validateCreateFlow(lang, token, receiver, flowRate, signatureVRS, msgSender);
@@ -79,6 +81,20 @@ contract DashboardMacro is EIP712, IUserDefinedMacro {
                     abi.encodeCall(
                         cfa.createFlow,
                         (token, receiver, flowRate, new bytes(0))
+                    ),
+                    new bytes(0) // userdata
+                )
+            });
+        } else if (actionCode == ACTION_CODE_UPGRADE) {
+            (string memory lang, ISuperToken token, uint256 amount) = decode712Upgrade(signedParams);
+
+            operations[1] = ISuperfluid.Operation({
+                operationType: BatchOperation.OPERATION_TYPE_SUPERTOKEN_UPGRADE,
+                target: address(token),
+                data: abi.encode(
+                    abi.encodeCall(
+                        token.upgrade,
+                        (amount)
                     ),
                     new bytes(0) // userdata
                 )
@@ -104,23 +120,28 @@ contract DashboardMacro is EIP712, IUserDefinedMacro {
     function getHumanReadableFlowRateStr(int96 flowRate) public view returns(string memory) {
         // Convert flow rate from wei/second to tokens/day. We know it's 18 decimals for all SuperTokens
         int256 absFlowRate = (flowRate < 0) ? -flowRate : flowRate;
-        uint256 microTokensPerDay = uint256(absFlowRate) * 86400 / 1e12;
-
-        // Add half of the smallest unit to get a rounded result
-        microTokensPerDay += 5;
-
-        // Format the flow rate to have 5 decimal place
-        string memory frIntPartStr = Strings.toString(microTokensPerDay / 1e6);
-        // the last digit is cut off to remove the rounding artifact introduced before
-        string memory frFracPartStr = Strings.toString((microTokensPerDay % 1e6) / 10);
-        // Add leading zeroes to the fractional part if there's any
-        while (bytes(frFracPartStr).length < 5) {
-            frFracPartStr = string.concat("0", frFracPartStr);
-        }
-        string memory frAbs = string.concat(frIntPartStr, ".", frFracPartStr);
-
+        uint256 tokensPerDay = uint256(absFlowRate) * 86400;
+        string memory frAbs = getHumanReadableAmount(tokensPerDay);
         return (flowRate < 0) ? string.concat("-", frAbs) : frAbs;
     }
+
+    function getHumanReadableAmount(uint256 amount) public view returns(string memory) {
+        // 1e18 - 1e6 = 1e12
+        uint256 microTokens = amount / 1e12;
+        // Add half of the smallest unit to get a rounded result
+        microTokens += 5;
+        // Format the amount to have 5 decimals
+        string memory intPart = Strings.toString(microTokens / 1e6);
+        // the last digit is cut off to remove the rounding artifact introduced before
+        string memory fracPart = Strings.toString((microTokens % 1e6) / 10);
+        // Add leading zeroes to the fractional part if there's any
+        while (bytes(fracPart).length < 5) {
+            fracPart = string.concat("0", fracPart);
+        }
+        return string.concat(intPart, ".", fracPart);
+    }
+
+    // ====== CREATE FLOW ======
 
     // get params to sign and digest for createFlow, for use with EIP-712
     function encode712CreateFlow(string memory lang, ISuperToken token, address receiver, int96 flowRate)
@@ -151,11 +172,11 @@ contract DashboardMacro is EIP712, IUserDefinedMacro {
         );
     }
 
-    function decode721CreateFlow(bytes memory signedParams)
+    function decode712CreateFlow(bytes memory signedParams)
         public view
         returns(string memory lang, ISuperToken token, address receiver, int96 flowRate)
     {
-        // skip action, lang, message
+        // skip action
         (, lang, token, receiver, flowRate) =
                 abi.decode(signedParams, (bytes32, string, ISuperToken, address, int96));
     }
@@ -163,6 +184,55 @@ contract DashboardMacro is EIP712, IUserDefinedMacro {
     // taking the signed params, validate the signature
     function validateCreateFlow(string memory lang, ISuperToken token, address receiver, int96 flowRate, bytes memory signatureVRS, address msgSender) public view returns (bool) {
         (, , bytes32 digest) = encode712CreateFlow(lang, token, receiver, flowRate);
+
+        // validate the signature
+        (uint8 v, bytes32 r, bytes32 s) = abi.decode(signatureVRS, (uint8, bytes32, bytes32));
+        address signer = ecrecover(digest, v, r, s);
+        if (signer != msgSender) revert InvalidSignature();
+    }
+
+    // ====== UPGRADE ======
+
+    function encode712Upgrade(string memory lang, ISuperToken token, uint256 amount)
+        public view
+        returns(string memory message, bytes memory paramsToProvide, bytes32 digest)
+    {
+        address underlyingToken = token.getUnderlyingToken();
+        if (Strings.equal(lang, "en")) {
+            message = string(abi.encodePacked("Upgrade ", getHumanReadableAmount(amount), " ", IERC20Metadata(underlyingToken).symbol(), " to ", token.symbol()));
+        } else revert UnsupportedLanguage();
+
+        paramsToProvide = abi.encode(
+            ACTION_CODE_UPGRADE,
+            lang,
+            token, amount
+        );
+
+        digest = _hashTypedDataV4(
+            keccak256(
+                abi.encode(
+                    UPGRADE_TYPEHASH,
+                    ACTION_CODE_UPGRADE,
+                    keccak256(bytes(lang)),
+                    keccak256(bytes(message)),
+                    token, amount
+                )
+            )
+        );
+    }
+
+    function decode712Upgrade(bytes memory signedParams)
+        public view
+        returns(string memory lang, ISuperToken token, uint256 amount)
+    {
+        // skip action
+        (, lang, token, amount) =
+                abi.decode(signedParams, (bytes32, string, ISuperToken, uint256));
+    }
+
+    // taking the signed params, validate the signature
+    function validateCreateFlow(string memory lang, ISuperToken token, uint256 amount, bytes memory signatureVRS, address msgSender) public view returns (bool) {
+        (, , bytes32 digest) = encode712Upgrade(lang, token, amount);
 
         // validate the signature
         (uint8 v, bytes32 r, bytes32 s) = abi.decode(signatureVRS, (uint8, bytes32, bytes32));
