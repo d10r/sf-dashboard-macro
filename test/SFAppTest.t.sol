@@ -90,6 +90,8 @@ contract SFAppTest is FoundrySuperfluidTester {
 
         IERC20 underlying = IERC20(superToken.getUnderlyingToken());
         (uint256 underlyingAmount, uint256 adjustedAmount) = superToken.toUnderlyingAmount(amount);
+        console.log("underlyingAmount", underlyingAmount);
+        console.log("adjustedAmount", adjustedAmount);
 
         // fund the signer with native tokens and SuperTokens
         vm.deal(signer.addr, 1 ether);
@@ -109,10 +111,14 @@ contract SFAppTest is FoundrySuperfluidTester {
 
         bytes memory params = abi.encode(paramsToProvide, abi.encode(v, r, s));
 
+        console.log("signer balance pre:", superToken.balanceOf(signer.addr));
+
         vm.startPrank(signer.addr);
-        sf.macroForwarder.runMacro{value: feeAmount}(m, params);
+        sf.macroForwarder.runMacro(m, params);
         vm.stopPrank();
 
-        assertEq(feeReceiver.balance, feeAmount, "unexpected fee receiver balance");
+        console.log("signer balance post:", superToken.balanceOf(signer.addr));
+
+        assertEq(superToken.balanceOf(signer.addr), adjustedAmount, "unexpected SuperToken balance");
     }
 }
