@@ -3,7 +3,7 @@ pragma solidity ^0.8.26;
 
 import { Strings } from "@openzeppelin/contracts/utils/Strings.sol";
 import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
-import { EIP712 } from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 
 import { MacroForwarder, IUserDefinedMacro } from "@superfluid-finance/ethereum-contracts/contracts/utils/MacroForwarder.sol";
 import { ISuperfluid, BatchOperation, IERC20Metadata } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
@@ -11,222 +11,173 @@ import { ISuperToken } from "@superfluid-finance/ethereum-contracts/contracts/su
 import { IConstantFlowAgreementV1 } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/agreements/IConstantFlowAgreementV1.sol";
 import { SuperTokenV1Library } from "@superfluid-finance/ethereum-contracts/contracts/apps/SuperTokenV1Library.sol";
 
+import { MacroBase712 } from "./MacroBase712.sol";
+import { FlowRateFormatter, AmountFormatter } from "./FormatterLibs.sol";
+
 using SuperTokenV1Library for ISuperToken;
+using FlowRateFormatter for int96;
+using AmountFormatter for uint256;
 
 /*
 TODO:
-- Implement "Ownable" for reverse ENS
-- implement delete action
+-[X] Implement "Ownable" for reverse ENS
+-[ ] implement all "core actions"
 */
-contract DashboardMacro is EIP712, IUserDefinedMacro {
-
+contract DashboardMacro is MacroBase712, Ownable {
     uint8 constant ACTION_CREATE_FLOW = 1;
     uint8 constant ACTION_UPGRADE = 2;
 
-    bytes32 constant public CREATE_FLOW_TYPEHASH = keccak256(bytes("SuperfluidCreateFlow(string action,address token,address receiver,int96 flowRate)"));
-    bytes32 constant public UPGRADE_TYPEHASH = keccak256(bytes("SuperfluidUpgrade(string action,address token,uint256 amount)"));
+    bytes32 constant public TYPEHASH_CREATE_FLOW = keccak256(bytes("SuperfluidCreateFlow(string action,address token,address receiver,int96 flowRate)"));
+    bytes32 constant public TYPEHASH_UPGRADE = keccak256(bytes("SuperfluidUpgrade(string action,address token,uint256 amount)"));
 
     address payable immutable FEE_RECEIVER;
     uint256 immutable FEE_AMOUNT;
+    IConstantFlowAgreementV1 _cfa;
 
-    error UnknownActionCode(uint8 actionCode);
-    error FeeOverpaid();
-    error UnsupportedLanguage();
-    error InvalidSignature();
-
-    constructor(address payable feeReceiver, uint256 feeAmount)
-        EIP712("app.superfluid", "0.1.0")
+    constructor(ISuperfluid host, address payable feeReceiver, uint256 feeAmount)
+        MacroBase712("app.superfluid", "0.1.0")
     {
         FEE_RECEIVER = feeReceiver;
         FEE_AMOUNT = feeAmount;
-    }
 
-    function buildBatchOperations(ISuperfluid host, bytes memory params, address msgSender) external override view
-        returns (ISuperfluid.Operation[] memory operations)
-    {
-        IConstantFlowAgreementV1 cfa = IConstantFlowAgreementV1(address(host.getAgreementClass(
+        _cfa = IConstantFlowAgreementV1(address(host.getAgreementClass(
             keccak256("org.superfluid-finance.agreements.ConstantFlowAgreement.v1")
         )));
-
-        // first we seperate the provided params from the signature
-        (bytes memory providedParams, bytes memory signatureVRS) = abi.decode(params, (bytes, bytes));
-
-        // now we get the action code so we can dispatch
-        uint8 actionCode;
-        assembly {
-            actionCode := mload(add(providedParams, 32)) // load the first word (actionCode) from the params array
-        }
-
-        if (actionCode == ACTION_CREATE_FLOW) {
-            // Extract the action arguments
-            (string memory lang, ISuperToken token, address receiver, int96 flowRate) = decode712CreateFlow(providedParams);
-
-            // now we verify the signature
-            validateCreateFlow(lang, token, receiver, flowRate, signatureVRS, msgSender);
-
-            operations = new ISuperfluid.Operation[](2);
-            // for this action, we take a fee
-            operations[0] = ISuperfluid.Operation({
-                operationType: BatchOperation.OPERATION_TYPE_SIMPLE_FORWARD_CALL,
-                target: address(this),
-                data: abi.encodeCall(this.takeFee, (FEE_AMOUNT))
-            });
-            operations[1] = ISuperfluid.Operation({
-                operationType: BatchOperation.OPERATION_TYPE_SUPERFLUID_CALL_AGREEMENT,
-                target: address(cfa),
-                data: abi.encode(
-                    abi.encodeCall(
-                        cfa.createFlow,
-                        (token, receiver, flowRate, new bytes(0))
-                    ),
-                    new bytes(0) // userdata
-                )
-            });
-        } else if (actionCode == ACTION_UPGRADE) {
-            (string memory lang, ISuperToken token, uint256 amount) = decode712Upgrade(providedParams);
-
-            validateUpgrade(lang, token, amount, signatureVRS, msgSender);
-
-            operations = new ISuperfluid.Operation[](1);
-            operations[0] = ISuperfluid.Operation({
-                operationType: BatchOperation.OPERATION_TYPE_SUPERTOKEN_UPGRADE,
-                target: address(token),
-                data: abi.encode(amount)
-            });
-        } else {
-            revert UnknownActionCode(actionCode);
-        }
     }
 
-    // Forwards a fee in native tokens to the FEE_RECEIVER.
-    // Will fail if less than `amount` is provided.
-    function takeFee(uint256 amount) external payable {
-        FEE_RECEIVER.transfer(amount);
+    function _getActions() internal pure override returns (Action[] memory) {
+        Action[] memory actions = new Action[](2);
+        actions[0] = Action({
+            actionCode: ACTION_CREATE_FLOW,
+            buildOperations: _buildOperationsForCreateFlow,
+            getDigest: _getDigestForCreateFlow,
+            postCheck: _noPostCheck
+        });
+        actions[1] = Action({
+            actionCode: ACTION_UPGRADE,
+            buildOperations: _buildOperationsForUpgrade,
+            getDigest: _getDigestForUpgrade,
+            postCheck: _noPostCheck
+        });
+
+        return actions;
     }
 
-    // Don't allow native tokens in excess of the required fee
-    // Note: this is safe only as long as this contract can't receive native tokens through other means,
-    // e.g. by implementing a fallback or receive function.
-    function postCheck(ISuperfluid /*host*/, bytes memory /*params*/, address /*msgSender*/) external view {
-        if (address(this).balance != 0) revert FeeOverpaid();
+    // ACTION_CREATE_FLOW
+
+    struct CreateFlowParams {
+        ISuperToken superToken;
+        address receiver;
+        int96 flowRate;
     }
 
-    function getHumanReadableFlowRateStr(int96 flowRate) public view returns(string memory) {
-        // Convert flow rate from wei/second to tokens/day. We know it's 18 decimals for all SuperTokens
-        int256 absFlowRate = (flowRate < 0) ? -flowRate : flowRate;
-        uint256 tokensPerDay = uint256(absFlowRate) * 86400;
-        string memory frAbs = getHumanReadableAmount(tokensPerDay);
-        return (flowRate < 0) ? string.concat("-", frAbs) : frAbs;
+    function _buildOperationsForCreateFlow(ISuperfluid host, bytes memory actionParams, address msgSender)
+        internal view returns (ISuperfluid.Operation[] memory operations)
+    {
+        CreateFlowParams memory p = abi.decode(actionParams, (CreateFlowParams));
+
+        operations = new ISuperfluid.Operation[](2);
+        // for this action, we take a fee
+        operations[0] = ISuperfluid.Operation({
+            operationType: BatchOperation.OPERATION_TYPE_SIMPLE_FORWARD_CALL,
+            target: address(FEE_RECEIVER),
+            data: new bytes(0) // simple ETH transfer
+        });
+        operations[1] = ISuperfluid.Operation({
+            operationType: BatchOperation.OPERATION_TYPE_SUPERFLUID_CALL_AGREEMENT,
+            target: address(_cfa),
+            data: abi.encode(
+                abi.encodeCall(
+                    _cfa.createFlow,
+                    (p.superToken, p.receiver, p.flowRate, new bytes(0))
+                ),
+                new bytes(0) // userdata
+            )
+        });
     }
 
-    function getHumanReadableAmount(uint256 amount) public view returns(string memory) {
-        // 1e18 - 1e6 = 1e12
-        uint256 microTokens = amount / 1e12;
-        // Add half of the smallest unit to get a rounded result
-        microTokens += 5;
-        // Format the amount to have 5 decimals
-        string memory intPart = Strings.toString(microTokens / 1e6);
-        // the last digit is cut off to remove the rounding artifact introduced before
-        string memory fracPart = Strings.toString((microTokens % 1e6) / 10);
-        // Add leading zeroes to the fractional part if there's any
-        while (bytes(fracPart).length < 5) {
-            fracPart = string.concat("0", fracPart);
-        }
-        return string.concat(intPart, ".", fracPart);
+    function _getDigestForCreateFlow(bytes memory actionParams, bytes32 lang)
+        internal view returns (bytes32 digest)
+    {
+        CreateFlowParams memory params = abi.decode(actionParams, (CreateFlowParams));
+        (, , digest) = encode712CreateFlow(lang, params);
     }
 
-    // ====== CREATE FLOW ======
-
-    // get params to sign and digest for createFlow, for use with EIP-712
-    function encode712CreateFlow(string memory lang, ISuperToken token, address receiver, int96 flowRate)
+    function encode712CreateFlow(bytes32 lang, CreateFlowParams memory p)
         public view
         returns (string memory message, bytes memory paramsToProvide, bytes32 digest)
     {
-        // the message is constructed based on the selected language and action arguments
-        if (Strings.equal(lang, "en")) {
-            message = string(abi.encodePacked("Create a new flow of ", getHumanReadableFlowRateStr(flowRate), " ", token.symbol(), "/day"));
+        if (lang == "en") {
+            message = string(abi.encodePacked("Create a new flow of ", p.flowRate.toFlowRatePerDay(), " ", p.superToken.symbol(), "/day"));
         } else revert UnsupportedLanguage();
 
         paramsToProvide = abi.encode(
             ACTION_CREATE_FLOW,
             lang,
-            token, receiver, flowRate
+            abi.encode(p.superToken, p.receiver, p.flowRate)
         );
 
         digest = _hashTypedDataV4(
             keccak256(
                 abi.encode(
-                    CREATE_FLOW_TYPEHASH,
+                    TYPEHASH_CREATE_FLOW,
                     keccak256(bytes(message)),
-                    token, receiver, flowRate
+                    p.superToken, p.receiver, p.flowRate
                 )
             )
         );
     }
 
-    function decode712CreateFlow(bytes memory providedParams)
-        public view
-        returns(string memory lang, ISuperToken token, address receiver, int96 flowRate)
-    {
-        // skip action
-        (, lang, token, receiver, flowRate) =
-                abi.decode(providedParams, (uint8, string, ISuperToken, address, int96));
+    // ACTION_UPGRADE
+
+    struct UpgradeParams {
+        ISuperToken superToken;
+        uint256 amount;
     }
 
-    // taking the signed params, validate the signature
-    function validateCreateFlow(string memory lang, ISuperToken token, address receiver, int96 flowRate, bytes memory signatureVRS, address msgSender) public view returns (bool) {
-        (, , bytes32 digest) = encode712CreateFlow(lang, token, receiver, flowRate);
+    function _buildOperationsForUpgrade(ISuperfluid host, bytes memory actionParams, address msgSender)
+        internal view returns (ISuperfluid.Operation[] memory operations)
+    {
+        UpgradeParams memory p = abi.decode(actionParams, (UpgradeParams));
 
-        // validate the signature
-        (uint8 v, bytes32 r, bytes32 s) = abi.decode(signatureVRS, (uint8, bytes32, bytes32));
-        address signer = ecrecover(digest, v, r, s);
-        if (signer != msgSender) revert InvalidSignature();
+        operations = new ISuperfluid.Operation[](1);
+        operations[0] = ISuperfluid.Operation({
+            operationType: BatchOperation.OPERATION_TYPE_SUPERTOKEN_UPGRADE,
+            target: address(p.superToken),
+            data: abi.encode(p.amount)
+        });
     }
 
-    // ====== UPGRADE ======
-
-    function encode712Upgrade(string memory lang, ISuperToken token, uint256 amount)
-        public view
-        returns(string memory message, bytes memory paramsToProvide, bytes32 digest)
+    function _getDigestForUpgrade(bytes memory actionParams, bytes32 lang)
+        internal view returns (bytes32 digest)
     {
-        address underlyingToken = token.getUnderlyingToken();
-        if (Strings.equal(lang, "en")) {
-            message = string(abi.encodePacked("Upgrade ", getHumanReadableAmount(amount), " ", IERC20Metadata(underlyingToken).symbol(), " to ", token.symbol()));
+        UpgradeParams memory params = abi.decode(actionParams, (UpgradeParams));
+        (, , digest) = encode712Upgrade(lang, params);
+    }
+
+    function encode712Upgrade(bytes32 lang, UpgradeParams memory p)
+        public view
+        returns (string memory message, bytes memory paramsToProvide, bytes32 digest)
+    {
+        address underlyingToken = p.superToken.getUnderlyingToken();
+        if (lang == "en") {
+            message = string(abi.encodePacked("Upgrade ", p.amount.toHumanReadable(), " ", IERC20Metadata(underlyingToken).symbol(), " to ", p.superToken.symbol()));
         } else revert UnsupportedLanguage();
 
         paramsToProvide = abi.encode(
             ACTION_UPGRADE,
             lang,
-            token, amount
+            abi.encode(p.superToken, p.amount)
         );
 
         digest = _hashTypedDataV4(
             keccak256(
                 abi.encode(
-                    UPGRADE_TYPEHASH,
+                    TYPEHASH_UPGRADE,
                     keccak256(bytes(message)),
-                    token, amount
+                    p.superToken, p.amount
                 )
             )
         );
-    }
-
-    function decode712Upgrade(bytes memory providedParams)
-        public view
-        returns(string memory lang, ISuperToken token, uint256 amount)
-    {
-        // skip action
-        (, lang, token, amount) =
-                abi.decode(providedParams, (uint8, string, ISuperToken, uint256));
-    }
-
-    // taking the signed params, validate the signature
-    function validateUpgrade(string memory lang, ISuperToken token, uint256 amount, bytes memory signatureVRS, address msgSender) public view returns (bool) {
-        (, , bytes32 digest) = encode712Upgrade(lang, token, amount);
-
-        // validate the signature
-        (uint8 v, bytes32 r, bytes32 s) = abi.decode(signatureVRS, (uint8, bytes32, bytes32));
-        address signer = ecrecover(digest, v, r, s);
-        if (signer != msgSender) revert InvalidSignature();
     }
 }

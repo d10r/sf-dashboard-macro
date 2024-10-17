@@ -3,6 +3,11 @@
     "type": "constructor",
     "inputs": [
       {
+        "name": "host",
+        "type": "address",
+        "internalType": "contract ISuperfluid"
+      },
+      {
         "name": "feeReceiver",
         "type": "address",
         "internalType": "address payable"
@@ -17,7 +22,7 @@
   },
   {
     "type": "function",
-    "name": "CREATE_FLOW_TYPEHASH",
+    "name": "TYPEHASH_CREATE_FLOW",
     "inputs": [],
     "outputs": [
       {
@@ -30,7 +35,7 @@
   },
   {
     "type": "function",
-    "name": "UPGRADE_TYPEHASH",
+    "name": "TYPEHASH_UPGRADE",
     "inputs": [],
     "outputs": [
       {
@@ -89,69 +94,6 @@
   },
   {
     "type": "function",
-    "name": "decode712CreateFlow",
-    "inputs": [
-      {
-        "name": "signedParams",
-        "type": "bytes",
-        "internalType": "bytes"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "lang",
-        "type": "string",
-        "internalType": "string"
-      },
-      {
-        "name": "token",
-        "type": "address",
-        "internalType": "contract ISuperToken"
-      },
-      {
-        "name": "receiver",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "flowRate",
-        "type": "int96",
-        "internalType": "int96"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "decode712Upgrade",
-    "inputs": [
-      {
-        "name": "signedParams",
-        "type": "bytes",
-        "internalType": "bytes"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "lang",
-        "type": "string",
-        "internalType": "string"
-      },
-      {
-        "name": "token",
-        "type": "address",
-        "internalType": "contract ISuperToken"
-      },
-      {
-        "name": "amount",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "eip712Domain",
     "inputs": [],
     "outputs": [
@@ -199,23 +141,30 @@
     "inputs": [
       {
         "name": "lang",
-        "type": "string",
-        "internalType": "string"
+        "type": "bytes32",
+        "internalType": "bytes32"
       },
       {
-        "name": "token",
-        "type": "address",
-        "internalType": "contract ISuperToken"
-      },
-      {
-        "name": "receiver",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "flowRate",
-        "type": "int96",
-        "internalType": "int96"
+        "name": "p",
+        "type": "tuple",
+        "internalType": "struct DashboardMacro.CreateFlowParams",
+        "components": [
+          {
+            "name": "superToken",
+            "type": "address",
+            "internalType": "contract ISuperToken"
+          },
+          {
+            "name": "receiver",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "flowRate",
+            "type": "int96",
+            "internalType": "int96"
+          }
+        ]
       }
     ],
     "outputs": [
@@ -243,18 +192,25 @@
     "inputs": [
       {
         "name": "lang",
-        "type": "string",
-        "internalType": "string"
+        "type": "bytes32",
+        "internalType": "bytes32"
       },
       {
-        "name": "token",
-        "type": "address",
-        "internalType": "contract ISuperToken"
-      },
-      {
-        "name": "amount",
-        "type": "uint256",
-        "internalType": "uint256"
+        "name": "p",
+        "type": "tuple",
+        "internalType": "struct DashboardMacro.UpgradeParams",
+        "components": [
+          {
+            "name": "superToken",
+            "type": "address",
+            "internalType": "contract ISuperToken"
+          },
+          {
+            "name": "amount",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
       }
     ],
     "outputs": [
@@ -278,38 +234,13 @@
   },
   {
     "type": "function",
-    "name": "getHumanReadableAmount",
-    "inputs": [
-      {
-        "name": "amount",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
+    "name": "owner",
+    "inputs": [],
     "outputs": [
       {
         "name": "",
-        "type": "string",
-        "internalType": "string"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "getHumanReadableFlowRateStr",
-    "inputs": [
-      {
-        "name": "flowRate",
-        "type": "int96",
-        "internalType": "int96"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "string",
-        "internalType": "string"
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "stateMutability": "view"
@@ -319,63 +250,12 @@
     "name": "postCheck",
     "inputs": [
       {
-        "name": "",
+        "name": "host",
         "type": "address",
         "internalType": "contract ISuperfluid"
       },
       {
-        "name": "",
-        "type": "bytes",
-        "internalType": "bytes"
-      },
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "takeFee",
-    "inputs": [
-      {
-        "name": "amount",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "payable"
-  },
-  {
-    "type": "function",
-    "name": "validateCreateFlow",
-    "inputs": [
-      {
-        "name": "lang",
-        "type": "string",
-        "internalType": "string"
-      },
-      {
-        "name": "token",
-        "type": "address",
-        "internalType": "contract ISuperToken"
-      },
-      {
-        "name": "receiver",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "flowRate",
-        "type": "int96",
-        "internalType": "int96"
-      },
-      {
-        "name": "signatureVRS",
+        "name": "params",
         "type": "bytes",
         "internalType": "bytes"
       },
@@ -385,53 +265,28 @@
         "internalType": "address"
       }
     ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bool",
-        "internalType": "bool"
-      }
-    ],
+    "outputs": [],
     "stateMutability": "view"
   },
   {
     "type": "function",
-    "name": "validateCreateFlow",
+    "name": "renounceOwnership",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "transferOwnership",
     "inputs": [
       {
-        "name": "lang",
-        "type": "string",
-        "internalType": "string"
-      },
-      {
-        "name": "token",
-        "type": "address",
-        "internalType": "contract ISuperToken"
-      },
-      {
-        "name": "amount",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "signatureVRS",
-        "type": "bytes",
-        "internalType": "bytes"
-      },
-      {
-        "name": "msgSender",
+        "name": "newOwner",
         "type": "address",
         "internalType": "address"
       }
     ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bool",
-        "internalType": "bool"
-      }
-    ],
-    "stateMutability": "view"
+    "outputs": [],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "event",
@@ -440,8 +295,32 @@
     "anonymous": false
   },
   {
+    "type": "event",
+    "name": "OwnershipTransferred",
+    "inputs": [
+      {
+        "name": "previousOwner",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "newOwner",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
     "type": "error",
-    "name": "FeeOverpaid",
+    "name": "ActionCodeZeroNotAllowed",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidPeriod",
     "inputs": []
   },
   {
@@ -471,8 +350,8 @@
     "inputs": [
       {
         "name": "actionCode",
-        "type": "bytes32",
-        "internalType": "bytes32"
+        "type": "uint8",
+        "internalType": "uint8"
       }
     ]
   },

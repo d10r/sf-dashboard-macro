@@ -8,48 +8,11 @@ import { IERC20 } from "@superfluid-finance/ethereum-contracts/contracts/interfa
 
 import { DashboardMacro } from "../src/DashboardMacro.sol";
 
-contract SFAppTest is FoundrySuperfluidTester {
+contract DashboardMacroTest is FoundrySuperfluidTester {
     address payable feeReceiver = payable(address(0x420));
     uint256 feeAmount = 1e15;
 
     constructor() FoundrySuperfluidTester(5) { }
-
-    function XtestPaidCFAOps() external {
-        int96 flowRate1 = 42;
-        int96 flowRate2 = 44;
-
-        // alice needs funds for fee payment
-        vm.deal(alice, 1 ether);
-
-        DashboardMacro m = new DashboardMacro(feeReceiver, feeAmount);
-
-        vm.startPrank(alice);
-
-        // alice creates a flow to bob
-        /*
-        sf.macroForwarder.runMacro{value: feeAmount}(
-            m,
-            m.encodeCreateFlow(superToken, bob, flowRate1)
-        );
-        assertEq(feeReceiver.balance, feeAmount, "unexpected fee receiver balance");
-        assertEq(sf.cfa.getNetFlow(superToken, bob), flowRate1);
-        // ... then updates that flow
-        sf.macroForwarder.runMacro{value: feeAmount}(
-            m,
-            m.mUpdateFlow(superToken, bob, flowRate2)
-        );
-        assertEq(feeReceiver.balance, feeAmount * 2, "unexpected fee receiver balance");
-        assertEq(sf.cfa.getNetFlow(superToken, bob), flowRate2);
-
-        // ... and finally deletes it
-        sf.macroForwarder.runMacro{value: feeAmount}(
-            m,
-            m.mDeleteFlow(superToken, alice, bob)
-        );
-        assertEq(feeReceiver.balance, feeAmount * 3, "unexpected fee receiver balance");
-        assertEq(sf.cfa.getNetFlow(superToken, bob), 0);
-*/
-    }
 
     // REF: https://book.getfoundry.sh/tutorials/testing-eip712
     function testCreateFlow712() external {
@@ -64,11 +27,12 @@ contract SFAppTest is FoundrySuperfluidTester {
         superToken.transfer(signer.addr, 1e18);
         vm.stopPrank();
 
-        DashboardMacro m = new DashboardMacro(feeReceiver, feeAmount);
+        DashboardMacro m = new DashboardMacro(sf.host, feeReceiver, feeAmount);
 
         vm.startPrank(signer.addr);
 
-        (string memory message, bytes memory paramsToProvide, bytes32 digest) = m.encode712CreateFlow("en", superToken, bob, flowRate);
+        (string memory message, bytes memory paramsToProvide, bytes32 digest) =
+            m.encode712CreateFlow("en", DashboardMacro.CreateFlowParams(superToken, bob, flowRate));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(signer, digest);
         console.log("message: ", message);
 
@@ -80,7 +44,6 @@ contract SFAppTest is FoundrySuperfluidTester {
 
         assertEq(feeReceiver.balance, feeAmount, "unexpected fee receiver balance");
     }
-
 
     function testUpgrade712() external {
         uint256 amount = 1e17; // 0.1
@@ -99,13 +62,13 @@ contract SFAppTest is FoundrySuperfluidTester {
         underlying.transfer(signer.addr, 1e18);
         vm.stopPrank();
 
-        DashboardMacro m = new DashboardMacro(feeReceiver, feeAmount);
+        DashboardMacro m = new DashboardMacro(sf.host, feeReceiver, feeAmount);
 
         vm.startPrank(signer.addr);
 
         underlying.approve(address(superToken), underlyingAmount);
 
-        (string memory message, bytes memory paramsToProvide, bytes32 digest) = m.encode712Upgrade("en", superToken, adjustedAmount);
+        (string memory message, bytes memory paramsToProvide, bytes32 digest) = m.encode712Upgrade("en", DashboardMacro.UpgradeParams(superToken, adjustedAmount));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(signer, digest);
         console.log("message: ", message);
 

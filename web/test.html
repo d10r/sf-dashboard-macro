@@ -51,7 +51,7 @@
         let userMacroContract;
         let userMacroAbi;
 
-        const userMacroAddress = '0x2a8aa6FA9D355E76f8FC75410BFc0AD48b010b27';
+        const userMacroAddress = '0x0390cBb9ad39dFA4931875c1E2B57B90e2385D8b';
 
         // Load the ABI from the JSON file
         async function loadAbi() {
@@ -93,7 +93,8 @@
         }
 
         signButton.addEventListener('click', async () => {
-            const language = "en";
+            // Convert "en" string to bytes32
+            const language = ethers.encodeBytes32String("en");
 
             const domain = {
                 name: 'app.superfluid',
@@ -117,14 +118,28 @@
                 const flowRateTokensPerDay = parseFloat(document.getElementById('cf-flowRate').value);
                 const flowRateWeiPerSecond = tokensPerDayToWeiPerSecond(flowRateTokensPerDay);
 
-                value = {
-                    action: "", //placeholder
-                    token: document.getElementById('cf-token').value,
+                const actionParams = {
+                    superToken: document.getElementById('cf-token').value,
                     receiver: document.getElementById('cf-receiver').value,
-                    flowRate: flowRateWeiPerSecond.toString(), // Convert BigInt to string
+                    flowRate: flowRateWeiPerSecond.toString(),
                 };
 
-                encodedAction = await userMacroContract.encode712CreateFlow(language, value.token, value.receiver, value.flowRate);
+                encodedAction = await userMacroContract.encode712CreateFlow(
+                    language,
+                    actionParams
+                );
+
+                const [message, paramsToProvide, digest] = encodedAction;
+
+                value = {
+                    action: "", // action message, will be set later
+                    token: actionParams.superToken,
+                    receiver: actionParams.receiver,
+                    flowRate: actionParams.flowRate,
+                };
+
+                console.log('Encoded action:', { message, paramsToProvide, digest });
+                console.log('Value:', value);
             } else if (actionSelect.value === 'upgrade') {
                 types = {
                     SuperfluidUpgrade: [
@@ -137,13 +152,18 @@
                 const amountTokens = parseFloat(document.getElementById('up-amount').value);
                 const amountWei = ethers.parseEther(amountTokens.toString());
 
-                value = {
-                    action: "",
-                    token: document.getElementById('up-token').value,
+                const actionParams = {
+                    superToken: document.getElementById('up-token').value,
                     amount: amountWei,
                 };
 
-                encodedAction = await userMacroContract.encode712Upgrade(language, value.token, value.amount);
+                value = {
+                    action: "",
+                    token: actionParams.superToken,
+                    amount: actionParams.amount,
+                };
+
+                encodedAction = await userMacroContract.encode712Upgrade(language, actionParams);
             }
 
             const message = encodedAction[0];
@@ -152,7 +172,7 @@
             console.log(`message: ${message}, paramsToProvide: ${paramsToProvide}, digestShould: ${digestShould}`);
 
             value.action = message;
-            
+
             // Convert BigInt values to strings for logging
             const loggableValue = Object.fromEntries(
                 Object.entries(value).map(([k, v]) => [k, typeof v === 'bigint' ? v.toString() : v])
@@ -184,17 +204,17 @@
         sendButton.addEventListener('click', async () => {
             const macroForwarderAddress = '0xFD0268E33111565dE546af2675351A4b1587F89F';
             const feeAmountStr = "0.0005";
-            const macroForwarderAbi = [{"inputs":[{"internalType":"contract ISuperfluid","name":"host","type":"address"}],"stateMutability":"nonpayable","type":"constructor"},{"inputs":[{"internalType":"contract IUserDefinedMacro","name":"m","type":"address"},{"internalType":"bytes","name":"params","type":"bytes"}],"name":"buildBatchOperations","outputs":[{"components":[{"internalType":"uint32","name":"operationType","type":"uint32"},{"internalType":"address","name":"target","type":"address"},{"internalType":"bytes","name":"bytes"}],"internalType":"struct ISuperfluid.Operation[]","name":"operations","type":"tuple[]"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"contract IUserDefinedMacro","name":"m","type":"address"},{"internalType":"bytes","name":"params","type":"bytes"}],"name":"runMacro","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"payable","type":"function"}];
+            const macroForwarderAbi = [{"inputs":[{"internalType":"contract ISuperfluid","name":"host","type":"address"}],"stateMutability":"nonpayable","type":"constructor"},{"inputs":[{"internalType":"contract IUserDefinedMacro","name":"m","type":"address"},{"internalType":"bytes","name":"actionParams","type":"bytes"}],"name":"buildBatchOperations","outputs":[{"components":[{"internalType":"uint32","name":"operationType","type":"uint32"},{"internalType":"address","name":"target","type":"address"},{"internalType":"bytes","name":"bytes"}],"internalType":"struct ISuperfluid.Operation[]","name":"operations","type":"tuple[]"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"contract IUserDefinedMacro","name":"m","type":"address"},{"internalType":"bytes","name":"actionParams","type":"bytes"}],"name":"runMacro","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"payable","type":"function"}];
             const macroForwarder = new ethers.Contract(macroForwarderAddress, macroForwarderAbi, signer);
 
-            const params = ethers.AbiCoder.defaultAbiCoder().encode(
+            const actionParams = ethers.AbiCoder.defaultAbiCoder().encode(
                 ['bytes', 'bytes'],
                 [paramsToProvide, ethers.AbiCoder.defaultAbiCoder().encode(['uint8', 'bytes32', 'bytes32'], [signature.v, signature.r, signature.s])]
             );
 
             try {
                 const feeAmount = ethers.parseEther(feeAmountStr);
-                const tx = await macroForwarder.runMacro(userMacroAddress, params, { value: feeAmount });
+                const tx = await macroForwarder.runMacro(userMacroAddress, actionParams, { value: feeAmount });
                 console.log('Transaction sent:', tx.hash);
                 await tx.wait();
                 console.log('Transaction confirmed');
