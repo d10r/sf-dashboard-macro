@@ -92,87 +92,66 @@
             return BigInt(ethers.parseEther(tokensPerSecond.toFixed(18)));
         }
 
-        signButton.addEventListener('click', async () => {
-            // Convert "en" string to bytes32
-            const language = ethers.encodeBytes32String("en");
-
-            const domain = {
-                name: 'app.superfluid',
-                version: '0.1.0',
-                chainId: 11155420, // optimism-sepolia
-                verifyingContract: userMacroAddress,
+        async function handleCreateFlow(language) {
+            const types = {
+                SuperfluidCreateFlow: [
+                    { name: 'action', type: 'string' },
+                    { name: 'token', type: 'address' },
+                    { name: 'receiver', type: 'address' },
+                    { name: 'flowRate', type: 'int96' },
+                ]
             };
 
-            let types, value, encodedAction;
+            const flowRateTokensPerDay = parseFloat(document.getElementById('cf-flowRate').value);
+            const flowRateWeiPerSecond = tokensPerDayToWeiPerSecond(flowRateTokensPerDay);
 
-            if (actionSelect.value === 'createFlow') {
-                types = {
-                    SuperfluidCreateFlow: [
-                        { name: 'action', type: 'string' },
-                        { name: 'token', type: 'address' },
-                        { name: 'receiver', type: 'address' },
-                        { name: 'flowRate', type: 'int96' },
-                    ]
-                };
+            const actionParams = {
+                superToken: document.getElementById('cf-token').value,
+                receiver: document.getElementById('cf-receiver').value,
+                flowRate: flowRateWeiPerSecond.toString(),
+            };
 
-                const flowRateTokensPerDay = parseFloat(document.getElementById('cf-flowRate').value);
-                const flowRateWeiPerSecond = tokensPerDayToWeiPerSecond(flowRateTokensPerDay);
+            const value = {
+                action: "", // action message, will be set later
+                token: actionParams.superToken,
+                receiver: actionParams.receiver,
+                flowRate: actionParams.flowRate,
+            };
 
-                const actionParams = {
-                    superToken: document.getElementById('cf-token').value,
-                    receiver: document.getElementById('cf-receiver').value,
-                    flowRate: flowRateWeiPerSecond.toString(),
-                };
+            const encodedAction = await userMacroContract.encode712CreateFlow(language, actionParams);
 
-                encodedAction = await userMacroContract.encode712CreateFlow(
-                    language,
-                    actionParams
-                );
+            return { types, value, encodedAction };
+        }
 
-                const [message, paramsToProvide, digest] = encodedAction;
+        async function handleUpgrade(language) {
+            const types = {
+                SuperfluidUpgrade: [
+                    { name: 'action', type: 'string' },
+                    { name: 'token', type: 'address' },
+                    { name: 'amount', type: 'uint256' },
+                ]
+            };
 
-                value = {
-                    action: "", // action message, will be set later
-                    token: actionParams.superToken,
-                    receiver: actionParams.receiver,
-                    flowRate: actionParams.flowRate,
-                };
+            const amountTokens = parseFloat(document.getElementById('up-amount').value);
+            const amountWei = ethers.parseEther(amountTokens.toString());
 
-                console.log('Encoded action:', { message, paramsToProvide, digest });
-                console.log('Value:', value);
-            } else if (actionSelect.value === 'upgrade') {
-                types = {
-                    SuperfluidUpgrade: [
-                        { name: 'action', type: 'string' },
-                        { name: 'token', type: 'address' },
-                        { name: 'amount', type: 'uint256' },
-                    ]
-                };
+            const actionParams = {
+                superToken: document.getElementById('up-token').value,
+                amount: amountWei,
+            };
 
-                const amountTokens = parseFloat(document.getElementById('up-amount').value);
-                const amountWei = ethers.parseEther(amountTokens.toString());
+            const value = {
+                action: "",
+                token: actionParams.superToken,
+                amount: actionParams.amount,
+            };
 
-                const actionParams = {
-                    superToken: document.getElementById('up-token').value,
-                    amount: amountWei,
-                };
+            const encodedAction = await userMacroContract.encode712Upgrade(language, actionParams);
 
-                value = {
-                    action: "",
-                    token: actionParams.superToken,
-                    amount: actionParams.amount,
-                };
+            return { types, value, encodedAction };
+        }
 
-                encodedAction = await userMacroContract.encode712Upgrade(language, actionParams);
-            }
-
-            const message = encodedAction[0];
-            paramsToProvide = encodedAction[1];
-            const digestShould = encodedAction[2];
-            console.log(`message: ${message}, paramsToProvide: ${paramsToProvide}, digestShould: ${digestShould}`);
-
-            value.action = message;
-
+        function verifyDigest(types, value, domain, digestCalculatedByContract) {
             // Convert BigInt values to strings for logging
             const loggableValue = Object.fromEntries(
                 Object.entries(value).map(([k, v]) => [k, typeof v === 'bigint' ? v.toString() : v])
@@ -184,9 +163,42 @@
             console.log('Type string:', encoder.primaryType);
             console.log('Full type string:', encoder.encodeType(encoder.primaryType));
 
-            const hashCalculatedByEthers = TypedDataEncoder.hash(domain, types, value);
-            console.log('Hash calculated by ethers:', hashCalculatedByEthers);
-            console.log('Hash matches:', hashCalculatedByEthers === digestShould);
+            const digestCalculatedByEthers = TypedDataEncoder.hash(domain, types, value);
+            console.log('Digest calculated by contract:', digestCalculatedByContract);
+            console.log('Digest calculated by ethers:', digestCalculatedByEthers);  
+
+            if (digestCalculatedByEthers !== digestCalculatedByContract) {
+                throw new Error('Digest does not match');
+            }
+        }
+
+        signButton.addEventListener('click', async () => {
+            const language = ethers.encodeBytes32String("en");
+
+            const domain = {
+                name: 'app.superfluid',
+                version: '0.1.0',
+                chainId: 11155420, // optimism-sepolia
+                verifyingContract: userMacroAddress,
+            };
+
+            let result;
+            if (actionSelect.value === 'createFlow') {
+                result = await handleCreateFlow(language);
+            } else if (actionSelect.value === 'upgrade') {
+                result = await handleUpgrade(language);
+            }
+
+            const { types, value, encodedAction } = result;
+
+            const message = encodedAction[0];
+            paramsToProvide = encodedAction[1];
+            const digestShould = encodedAction[2];
+            console.log(`message: ${message}, paramsToProvide: ${paramsToProvide}, digestShould: ${digestShould}`);
+
+            value.action = message;
+
+            verifyDigest(types, value, domain, digestShould);
 
             const signatureStr = await signer.signTypedData(domain, types, value);
             signature = ethers.Signature.from(signatureStr);
@@ -204,8 +216,9 @@
         sendButton.addEventListener('click', async () => {
             const macroForwarderAddress = '0xFD0268E33111565dE546af2675351A4b1587F89F';
             const feeAmountStr = "0.0005";
-            const macroForwarderAbi = [{"inputs":[{"internalType":"contract ISuperfluid","name":"host","type":"address"}],"stateMutability":"nonpayable","type":"constructor"},{"inputs":[{"internalType":"contract IUserDefinedMacro","name":"m","type":"address"},{"internalType":"bytes","name":"actionParams","type":"bytes"}],"name":"buildBatchOperations","outputs":[{"components":[{"internalType":"uint32","name":"operationType","type":"uint32"},{"internalType":"address","name":"target","type":"address"},{"internalType":"bytes","name":"bytes"}],"internalType":"struct ISuperfluid.Operation[]","name":"operations","type":"tuple[]"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"contract IUserDefinedMacro","name":"m","type":"address"},{"internalType":"bytes","name":"actionParams","type":"bytes"}],"name":"runMacro","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"payable","type":"function"}];
+            const macroForwarderAbi = [{"inputs":[{"internalType":"contract ISuperfluid","name":"host","type":"address"}],"stateMutability":"nonpayable","type":"constructor"},{"inputs":[{"internalType":"contract IUserDefinedMacro","name":"m","type":"address"},{"internalType":"bytes","name":"params","type":"bytes"}],"name":"buildBatchOperations","outputs":[{"components":[{"internalType":"uint32","name":"operationType","type":"uint32"},{"internalType":"address","name":"target","type":"address"},{"internalType":"bytes","name":"data","type":"bytes"}],"internalType":"struct ISuperfluid.Operation[]","name":"operations","type":"tuple[]"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"contract IUserDefinedMacro","name":"m","type":"address"},{"internalType":"bytes","name":"params","type":"bytes"}],"name":"runMacro","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"payable","type":"function"}];
             const macroForwarder = new ethers.Contract(macroForwarderAddress, macroForwarderAbi, signer);
+            console.log(`paramsToProvide: ${paramsToProvide}`);
 
             const actionParams = ethers.AbiCoder.defaultAbiCoder().encode(
                 ['bytes', 'bytes'],
